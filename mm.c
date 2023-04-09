@@ -120,6 +120,7 @@ int mm_init(void)
         return -1;
     return 0;
 }
+
 // 팀 구현
 static void *find_fit(size_t asize)
 {
@@ -148,6 +149,7 @@ static void *find_fit(size_t asize)
     }
     return NULL;
 }
+// CSAPP 답안
 // static void *find_fit(size_t asize)
 // {
 //     /* First-fit search */
@@ -162,6 +164,7 @@ static void *find_fit(size_t asize)
 //     return NULL; /* No fit */
 
 // }
+
 // 팀 구현
 static void place(void *bp, size_t asize)
 {
@@ -178,6 +181,7 @@ static void place(void *bp, size_t asize)
         PUT(FTRP(bp), PACK(origin_size, 1));
     }
 }
+// CSAPP 답안
 // static void place(void *bp, size_t asize)
 // {
 //     size_t csize = GET_SIZE(HDRP(bp));
@@ -201,15 +205,6 @@ static void place(void *bp, size_t asize)
  */
 void *mm_malloc(size_t size)
 {
-
-    // int newsize = ALIGN(size + SIZE_T_SIZE);
-    // void *p = mem_sbrk(newsize);
-    // if (p == (void *)-1)
-	// return NULL;
-    // else {
-    //     *(size_t *)p = size;
-    //     return (void *)((char *)p + SIZE_T_SIZE);
-    // }
     size_t asize;
     size_t extendsize;
     char *bp;
@@ -300,17 +295,24 @@ void mm_free(void *bp)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
+    // 재할당 받을 블록의 헤더 포인터
     void *oldptr = ptr;
     void *newptr;
     size_t copySize;
     
+    // 요청 가용 블록을 할당해 블록 헤더 포인터 재지정
     newptr = mm_malloc(size);
     if (newptr == NULL)
       return NULL;
+    //   이전에 할당된 블록의 size
     copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+    // 요청받은 size < 이전 size
     if (size < copySize)
+    // 이전 size -> 요청받은 size 로 갱신
       copySize = size;
-    memcpy(newptr, oldptr, copySize);
+    // newptr에 oldptr의 값을 size 크기만큼 복사
+    memcpy(newptr, oldptr, size);
+    // 이전 블록은 free
     mm_free(oldptr);
     return newptr;
 }
