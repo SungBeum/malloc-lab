@@ -92,6 +92,7 @@ static void *extend_heap(size_t words)
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1));
     // 이전 힙이 가용 블록으로 끝났다면, 두 개의 가용 블록을 통합하기 위해 coalesce 함수를 호출한다
     return coalesce(bp);
+    
 }
 /* 
  * mm_init - initialize the malloc package.
@@ -119,40 +120,80 @@ int mm_init(void)
         return -1;
     return 0;
 }
-
+// 팀 구현
 static void *find_fit(size_t asize)
 {
-    char *bp = heap_listp + DSIZE;
-    size_t size = GET_SIZE(bp);
-    size_t state = GET_ALLOC(bp);
-    while (size != 0)
-    {
-        bp -= WSIZE;
-        if (state == 1 && size >= asize)
-        {
-            return bp + WSIZE;
+    char *bp = heap_listp + DSIZE; // prologue 풋터에서 8바이트 즉. 다음 헤더의 payload를 가리키게 한다.
+    size_t size = GET_SIZE(HDRP(bp)); // 헤더의 사이즈와 할당 여부 저장
+    size_t state = GET_ALLOC(HDRP(bp));
+    // while (1) {
+    //     if (bp > (char*)mem_heap_hi()){ // 헤더의 주소가 epilogue를 넘어서면 NULL반환
+    //         return NULL; 
+    //     }
+    //     if (state == 0 && size >= asize) { // 가용상태이고 할당하려고 하는 메모리 사이즈보다 크거나 같다면 해당 bp를 반환
+    //         return bp;
+    //     }
+    //     bp += size; // bp 포인터와 할당상태, 사이즈를 갱신해준다.
+    //     state = GET_ALLOC(bp - WSIZE);
+    //     size = GET_SIZE(bp - WSIZE);
+    // }
+
+    while (GET_SIZE(HDRP(bp)) != 0) {    //  넌 아니야 GET_SIZE(FTRP(bp) + WSIZE)
+        if (state == 0 && size >= asize) {
+            return bp;
         }
-        bp += asize;
+        bp += size;
+        state = GET_ALLOC(bp - WSIZE);
+        size = GET_SIZE(bp - WSIZE);
     }
     return NULL;
 }
+// static void *find_fit(size_t asize)
+// {
+//     /* First-fit search */
+//         void *bp;
+//     for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
+//         if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
+//             return bp;
+
+
+//         }
+//     }
+//     return NULL; /* No fit */
+
+// }
+// 팀 구현
 static void place(void *bp, size_t asize)
 {
-    size_t origin_size = GET_SIZE(bp);
-    if (origin_size - asize >= 2*DSIZE)
-    {
+    size_t origin_size = GET_SIZE(bp - WSIZE);
+    if (origin_size - asize >=(2*DSIZE)) {
         PUT(HDRP(bp), PACK(asize, 1));
-        PUT(FTRP(bp+asize-WSIZE), PACK(asize, 1));
-        PUT(HDRP(bp+asize), PACK(origin_size-asize, 0));
-        PUT(FTRP(bp+asize), PACK(origin_size-asize, 0));
+        PUT(FTRP(bp), PACK(asize, 1));
+        PUT(HDRP(bp + asize), PACK(origin_size - asize, 0));
+        PUT(FTRP(bp + asize), PACK(origin_size - asize, 0));
+        // mm_free(bp + asize);
     }
-    else 
-    {
+    else {
         PUT(HDRP(bp), PACK(origin_size, 1));
-        PUT(FTRP(bp+origin_size-WSIZE), PACK(origin_size, 1));
+        PUT(FTRP(bp), PACK(origin_size, 1));
     }
-    // return 0;
 }
+// static void place(void *bp, size_t asize)
+// {
+//     size_t csize = GET_SIZE(HDRP(bp));
+
+//     if ((csize - asize) >= (2*DSIZE)) {
+//         PUT(HDRP(bp), PACK(asize, 1));
+//         PUT(FTRP(bp), PACK(asize, 1));
+//         bp = NEXT_BLKP(bp);
+//         PUT(HDRP(bp), PACK(csize-asize, 0));
+//         PUT(FTRP(bp), PACK(csize-asize, 0));
+//     }
+//     else {
+//         PUT(HDRP(bp), PACK(csize, 1));
+//         PUT(FTRP(bp), PACK(csize, 1));
+//     }
+// }
 
 /* 
  * mm_malloc - Allocate a block by incrementing the brk pointer.
