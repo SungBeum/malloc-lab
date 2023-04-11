@@ -37,7 +37,7 @@ team_t team = {
 
 #define WSIZE 4 // 워드 = 헤더 = 풋터 사이즈(bytes)
 #define DSIZE 8 // 더블우드 사이즈(bytes)
-#define CHUNKSIZE (1<<12) // heap을 이만큼 늘리겠다(bytes) = 2의12승
+#define CHUNKSIZE (1<<12) // heap을 이만큰 늘리겠다(bytes) = 2의12승
 
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
 
@@ -55,11 +55,10 @@ team_t team = {
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE))) // 다음 블록 포인터 반환
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE))) // 이전 블록 포인터 반환
 
-#define PRED_LOC(bp) HDRP(bp)+WSIZE // prev가 들어갈 주소
-#define SUCC_LOC(bp) HDRP(bp)+DSIZE // succ가 들어갈 주소
-#define POST_PRED(bp) GET(PRED_LOC(bp)) // pred
-#define NEXT_SUCC(bp) GET(SUCC_LOC(bp))
-#define FIRST POST_PRED(bp) 
+#define PRED_LOC(bp) (HDRP(bp)+WSIZE) // prev가 들어갈 주소
+#define SUCC_LOC(bp) (HDRP(bp)+DSIZE) // succ가 들어갈 주소
+#define POST_PRED(bp) (GET(PRED_LOC(bp)))// pred
+#define NEXT_SUCC(bp) (GET(SUCC_LOC(bp)))//  *(char *)SUCC_LOC(bp)
 
 
 /* single word (4) or double word (8) alignment */
@@ -84,7 +83,7 @@ int mm_init(void)
 {
     // mem_sbrk: 힙 영역을 incr bytes만큼 확장, 새로 할당된 힙 영역의 첫번째 byte를 가리키는 포인터 리턴
     // 불러올 수 없으면 -1 반환
-    if ((heap_listp = mem_sbrk(4 * WSIZE)) == (void *) - 1){
+    if ((heap_listp = mem_sbrk(4 * WSIZE)) == (void *)-1){
         return -1;
     }
     PUT(heap_listp, 0); // 패딩 할당
@@ -96,13 +95,16 @@ int mm_init(void)
     if (extend_heap(CHUNKSIZE/WSIZE) == NULL){
         return -1;
     }
-    void *start = heap_listp + DSIZE;
+    void *start = heap_listp + DSIZE; // pred_loc
     PUT(HDRP(start), PACK(CHUNKSIZE, 0));
     PUT(FTRP(start), PACK(CHUNKSIZE, 0));
-    PUT(PRED_LOC(start), heap_listp-WSIZE);
+    PUT(PRED_LOC(start), heap_listp-WSIZE); // heap_listp-WSIZE가 제대로 안들어가고 있음
     PUT(SUCC_LOC(start), heap_listp);
     root = SUCC_LOC(start);
-    printf("*PRED_LOC: %p\n heap-Wsize : %p\n HDRP : %p\n FTRP : %p\n ", *(unsigned int*)(PRED_LOC(start)), heap_listp-WSIZE, HDRP(start), FTRP(start));
+    // printf("start:%p\n *PRED_LOC(start):%p\n, heap_listp-WSIZE:%p\n", start, *(unsigned int *)(PRED_LOC(start)), heap_listp-WSIZE);
+    // printf("NEXT_SUCC:%p\n", NEXT_SUCC(start));
+    // *(unsigned int *)(PRED_LOC(start))이렇게 하면 잘 찍히는데 *(PRED_LOC(start))이렇게 하면 주소가 잘 안찍힌다.
+
     return 0;
 }
 // 새 가용 블록으로 힙 확장하기
@@ -118,6 +120,9 @@ static void *extend_heap(size_t words)
     if ((long)(bp = mem_sbrk(size)) == -1){
         return NULL;
     }
+    PUT(HDRP(bp), PACK(size, 0)); // size만큼 가용블록 생성
+    PUT(FTRP(bp), PACK(size, 0)); 
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); // 새 에필로그의 헤더가 된다.
     // if(bp == heap_listp+DSIZE){ // 처음이라면 bp return
     //     return bp;
     // }
@@ -127,39 +132,57 @@ static void *extend_heap(size_t words)
     // PUT(SUCC_LOC(new_bp), ); // 가장 마지막에 생성된 free 블록의 successor를 가리켜야 한다.
     // PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); // 새 에필로그의 헤더가 된다.
     // root = SUCC_LOC(bp);
-
+    // printf("extend!!bp: %p\n", bp);
     return coalesce(bp);
 
 }
 
 // 할당하려고 하는 메모리가 들어갈 수 있는 블록 찾기
 static void *find_fit(size_t asize)
-{
-    char *bp = root; // bp는 가장 첫번째 free 블록을 가리킨다.
+{    char *bp = root; // bp는 가장 첫번째 free 블록을 가리킨다.
     size_t size = GET_SIZE(HDRP(bp-WSIZE)); // 헤더의 사이즈와 할당 여부 저장
-    
-    while(size < asize)
+    // printf("size: %p\n", GET_SIZE(HDRP(bp-WSIZE))); // size:4096 잘찍힘
+    if (NEXT_SUCC(bp-WSIZE) == heap_listp)
+
+    while (NEXT_SUCC(bp-WSIZE) != heap_listp)
     {
-        if(NEXT_SUCC(bp-WSIZE) == heap_listp)
+        if(size >= asize)
         {
-            return NULL;
+            return bp-WSIZE;
         }
         bp = NEXT_SUCC(bp-WSIZE);
         size = GET_SIZE(HDRP(bp-WSIZE));
     }
-    return bp-WSIZE;
-    // PUT(HDRP(bp-WSIZE), PACK(asize, 1));
-    // PUT(FTRP(bp-WSIZE), PACK(asize, 1));
+    return NULL;
+
+    // while(size < asize)
+    // {
+    //     if(NEXT_SUCC(bp-WSIZE) == heap_listp)
+    //     {
+    //         // printf("NEXT_SUCC: %p\n", NEXT_SUCC(bp-WSIZE));
+    //         return NULL;
+    //     }
+    //     bp = NEXT_SUCC(bp-WSIZE);
+    //     // printf("NEXT_SUCC: %p\n", NEXT_SUCC(bp-WSIZE));
+    //     size = GET_SIZE(HDRP(bp-WSIZE));
+    // }
+    // return bp-WSIZE;
 }
 
 static void place(void *bp, size_t asize) // 수정 필요 
 {
     size_t origin_size = GET_SIZE(HDRP(bp)); // 할당 가능한 메모리 블록의 사이즈 저장
+    // printf("asize = %d\n", asize);
     char *new_bp = bp + asize;
     char *ex_bp = bp + origin_size;
+    // printf("bp: %p\n", bp);
+    // printf("new_bp: %p\n", new_bp);
+    // printf("ex_bp: %p\n", ex_bp);
     if (origin_size - asize >= 3 * DSIZE) { // 할당 가능한 블록에서 할당할 블록의 사이즈 차가 쿼드워드보다 크거나 같다면 안쓰는 부분을 가용상태로
-        if (POST_PRED(bp) == heap_listp-WSIZE){
+        if (POST_PRED(bp) == heap_listp-WSIZE && NEXT_SUCC(bp) == heap_listp){ // 블록 하나, 부분 할당
+            // printf("only one free\n");
             PUT(PRED_LOC(new_bp), heap_listp-WSIZE);
+            // printf("heap_listp-WSIZE: %p\nPOST_PRED: %p\n", heap_listp-WSIZE, POST_PRED(new_bp));
             PUT(SUCC_LOC(new_bp), heap_listp);
             PUT(HDRP(bp), PACK(asize, 1));
             PUT(FTRP(bp), PACK(asize, 1));
@@ -169,33 +192,91 @@ static void place(void *bp, size_t asize) // 수정 필요
 
         }
         else{
-            printf("post_pred : %p\n heap_listp : %p\n", POST_PRED(bp), heap_listp);
-            PUT(SUCC_LOC(POST_PRED(bp)), NEXT_SUCC(bp));
-            PUT(PRED_LOC(NEXT_SUCC(bp)), POST_PRED(bp));
-            PUT(HDRP(bp), PACK(asize, 1));
-            PUT(FTRP(bp), PACK(asize, 1));
-            PUT(HDRP(new_bp), PACK(origin_size - asize, 0));
-            PUT(FTRP(new_bp), PACK(origin_size - asize, 0));
-            PUT(SUCC_LOC(new_bp), root);
-            PUT(PRED_LOC(new_bp), heap_listp-WSIZE);
-            root = SUCC_LOC(new_bp);
+            if(NEXT_SUCC(bp) == heap_listp) // 마지막 블록 부분할당
+            {
+                // printf("last brk divide\n");
+                PUT(SUCC_LOC(new_bp), root);
+                PUT(PRED_LOC(new_bp), POST_PRED(root-WSIZE)); // POST_PRED(root-WSIZE) == heap_listp-wsize
+                PUT(SUCC_LOC(POST_PRED(bp)), NEXT_SUCC(bp));    // NEXT_SUCC(bp) == heap_listp 
+                PUT(HDRP(bp), PACK(asize, 1));
+                PUT(FTRP(bp), PACK(asize, 1));
+                
+                PUT(HDRP(new_bp), PACK(origin_size - asize, 0));
+                PUT(FTRP(new_bp), PACK(origin_size - asize, 0));
+                
+                root = SUCC_LOC(new_bp);
+            }
+            else if(POST_PRED(bp) == heap_listp-WSIZE) // 첫 블록 부분할당
+            {
+                // printf("first brk divide\n");
+                PUT(SUCC_LOC(new_bp), NEXT_SUCC(bp));
+                PUT(PRED_LOC(new_bp), POST_PRED(bp)); // POST_PRED(root-WSIZE) == heap_listp-wsize
+                PUT(HDRP(bp), PACK(asize, 1));
+                PUT(FTRP(bp), PACK(asize, 1));
+                PUT(HDRP(new_bp), PACK(origin_size - asize, 0));
+                PUT(FTRP(new_bp), PACK(origin_size - asize, 0));
+                root = SUCC_LOC(new_bp);
+            }
+            else // 중간블록 부분할당
+            {
+                // printf("middle brk divide\n");
+                PUT(SUCC_LOC(new_bp), root);
+                PUT(PRED_LOC(new_bp), POST_PRED(root-WSIZE)); // POST_PRED(root-WSIZE) == heap_listp-wsize
+                PUT(SUCC_LOC(POST_PRED(bp)), NEXT_SUCC(bp));
+                PUT(PRED_LOC(NEXT_SUCC(bp)-WSIZE), POST_PRED(bp));
+                PUT(HDRP(bp), PACK(asize, 1));
+                PUT(FTRP(bp), PACK(asize, 1));
+                PUT(HDRP(new_bp), PACK(origin_size - asize, 0));
+                PUT(FTRP(new_bp), PACK(origin_size - asize, 0));
+                root = SUCC_LOC(new_bp);
+            }
         }
     }
     else { // 안쓰는 블록을 쪼개봤자 필요가 없다면, 전부 할당한다.
-        // 할당할 때는 prev, succ 포인터 필요 없음
-        if (POST_PRED(bp) == heap_listp-WSIZE){
+        if(NEXT_SUCC(bp) == heap_listp && POST_PRED(bp) == heap_listp-WSIZE) // free블록 하나이면서 전부 할당
+        {
+            //printf("only one all free\n");
+            // printf("bp:%p\n", bp);
+            PUT(HDRP(bp), PACK(origin_size, 1));
+            PUT(FTRP(bp), PACK(origin_size, 1)); 
             ex_bp = extend_heap(CHUNKSIZE/WSIZE);
-            PUT(PRED_LOC(ex_bp), heap_listp-WSIZE);
+            // printf("ex_bp:%p\n", ex_bp);
+            PUT(PRED_LOC(ex_bp), heap_listp-WSIZE); //POST_PRED(bp) == heap_listp-wsize
             PUT(SUCC_LOC(ex_bp), heap_listp);
-            PUT(HDRP(bp), PACK(origin_size, 1));
-            PUT(FTRP(bp), PACK(origin_size, 1));
             root = SUCC_LOC(ex_bp);
+            // printf("PRED_LOC(ex_bp):%p\n", PRED_LOC(ex_bp));
+            // printf("SUCC_LOC(ex_bp):%p\n", SUCC_LOC(ex_bp));
+            // printf("HDRP(bp):%p\n", HDRP(bp));
+            // printf("FTRP(bp):%p\n", FTRP(bp));
+            // printf("root:%p\n", root);
         }
-        else{
-            PUT(SUCC_LOC(POST_PRED(bp)), NEXT_SUCC(bp));
-            PUT(PRED_LOC(NEXT_SUCC(bp)), POST_PRED(bp));
-            PUT(HDRP(bp), PACK(origin_size, 1));
-            PUT(FTRP(bp), PACK(origin_size, 1));
+        else{ // 블록 여러개 전부 할당
+            if (NEXT_SUCC(bp) == heap_listp)
+            { // 마지막 블록 전체 할당
+                // printf("last brk all free\n");
+                PUT(HDRP(bp), PACK(origin_size, 1));
+                PUT(FTRP(bp), PACK(origin_size, 1));  
+                ex_bp = extend_heap(CHUNKSIZE/WSIZE);
+                PUT(PRED_LOC(ex_bp), heap_listp-WSIZE); 
+                PUT(SUCC_LOC(ex_bp), root); // SUCC_LOC(bp) == heap_listp
+                PUT(SUCC_LOC(POST_PRED(ex_bp)), heap_listp);                  
+                root = SUCC_LOC(ex_bp);
+            }
+            else if(POST_PRED(bp) == heap_listp-WSIZE) // 첫번째 블록 전체 할당
+            {
+                // printf("first brk all free\n");
+                PUT(PRED_LOC(NEXT_SUCC(bp)-WSIZE), PRED_LOC(bp)); // PRED_LOC(bp) == heap_listp-WSIZE
+                PUT(HDRP(bp), PACK(origin_size, 1));
+                PUT(FTRP(bp), PACK(origin_size, 1));
+                root = NEXT_SUCC(bp);  
+            }
+            else{ // 중간 블록 전체 할당
+                // printf("middle brk all free\n");
+                PUT(SUCC_LOC(POST_PRED(bp)), NEXT_SUCC(bp));
+                PUT(PRED_LOC(NEXT_SUCC(bp)-WSIZE), POST_PRED(bp));
+                PUT(HDRP(bp), PACK(origin_size, 1));
+                PUT(FTRP(bp), PACK(origin_size, 1));
+            }
         }
     }
 }
@@ -229,6 +310,7 @@ void *mm_malloc(size_t size)
     // 힙 영역이 부족해서 늘릴 수 없을 때
     if ((bp = extend_heap(extendsize/WSIZE)) == NULL)
         return NULL;
+    // printf("extend_bp:%p\n", bp);
     place(bp, asize); // 다시 메모리 할당하기
 
     return bp;
@@ -269,16 +351,16 @@ static void *coalesce(void *bp) // 수정 필요
 
 // 블록을 반환
 void mm_free(void *bp)
-{
-    // bp에 할당된 메모리 블록의 헤더에서 정보를 가져와 size 변수에 저장
+{    // bp에 할당된 메모리 블록의 헤더에서 정보를 가져와 size 변수에 저장
     size_t size = GET_SIZE(HDRP(bp));
 
     PUT(HDRP(bp), PACK(size, 0)); // bp에 할당된 메모리 블록의 헤더 가용상태로 변경
     PUT(FTRP(bp), PACK(size, 0)); // bp에 할당된 메모리 블록의 풋터 가용상태로 변경
-    PUT(POST_PRED(bp), NULL);
-    PUT(NEXT_SUCC(bp), NEXT_SUCC(root));
+    PUT(SUCC_LOC(bp), root);
+    PUT(PRED_LOC(bp), POST_PRED(root-WSIZE)); // POST_PRED(root-WSIZE) == heap_listp-wsize
     root = SUCC_LOC(bp);
     coalesce(bp); // bp에 할당된 메모리 블록과 인접한 블록들을 병합하는 함수 호출
+    // printf("free:%p\n", bp);
 }
 
 void *mm_realloc(void *ptr, size_t size)
